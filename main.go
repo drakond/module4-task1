@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -58,13 +60,44 @@ func (s *server) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResp
 	return &pb.LoginResponse{Token: "token123"}, nil
 }
 
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func buildDSN() string {
+	host := getEnv("DB_HOST", "localhost")
+	port := getEnv("DB_PORT", "5432")
+	user := getEnv("DB_USER", "user")
+	password := getEnv("DB_PASSWORD", "password")
+	dbname := getEnv("DB_NAME", "module4-task1")
+	sslmode := getEnv("DB_SSLMODE", "disable")
+
+	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
+		host, port, user, password, dbname, sslmode)
+}
+
 func main() {
-	db, err := sql.Open("postgres", "host=localhost port=5432 user=user password=password dbname=module4-task1 sslmode=disable")
+	if err := godotenv.Load(); err != nil {
+		log.Println("Warning: .env file not found, using system environment variables")
+	}
+
+	dsn := buildDSN()
+
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("failed to connect to DB: %v", err)
 	}
+	defer db.Close()
 
-	lis, err := net.Listen("tcp", ":50051")
+	if err := db.Ping(); err != nil {
+		log.Fatalf("failed to ping DB: %v", err)
+	}
+
+	grpcPort := getEnv("GRPC_PORT", "50051")
+	lis, err := net.Listen("tcp", ":"+grpcPort)
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
 	}
@@ -72,7 +105,7 @@ func main() {
 	grpcServer := grpc.NewServer()
 	pb.RegisterAuthServiceServer(grpcServer, &server{db: db})
 
-	fmt.Println("gRPC server started on :50051")
+	fmt.Printf("gRPC server started on :%s\n", grpcPort)
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)
 	}

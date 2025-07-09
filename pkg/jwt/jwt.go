@@ -3,40 +3,46 @@ package jwt
 import (
 	"errors"
 	"fmt"
+	"github.com/drakond/module4-task1/internal/config"
+	"github.com/drakond/module4-task1/pkg/logger"
+	"github.com/golang-jwt/jwt/v5"
 	"os"
 	"time"
-
-	"github.com/golang-jwt/jwt/v5"
 )
 
-var (
-	jwtSecret []byte
-
-	ErrInvalidToken = errors.New("invalid token")
-
-	ErrUnexpectedSigningMethod = errors.New("unexpected signing method")
-)
+var jwtSecret []byte
+var jwtIssuer string
+var jwtLifetime time.Duration
 
 func Init() error {
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
+		logger.Logger.Errorw("JWT_SECRET environment variable not set")
 		return fmt.Errorf("JWT_SECRET environment variable not set")
 	}
 	if len(secret) < 32 {
+		logger.Logger.Errorw("JWT secret too short, must be at least 32 characters")
 		return fmt.Errorf("JWT secret must be at least 32 characters long")
 	}
 	jwtSecret = []byte(secret)
+
+	jwtIssuer = config.GetJWTIssuer()
+	jwtLifetime = config.GetJWTLifetime()
+
+	logger.Logger.Infow("JWT initialized",
+		"issuer", jwtIssuer,
+		"lifetime", jwtLifetime.String(),
+	)
+
 	return nil
 }
 
-type Claims struct {
-	UserID   string `json:"user_id"`
-	Username string `json:"username"`
-	jwt.RegisteredClaims
-}
-
-func GenerateToken(userID string, username string, lifetime time.Duration) (string, error) {
+func GenerateToken(userID string, username string) (string, error) {
 	if len(jwtSecret) == 0 {
+		logger.Logger.Errorw("JWT secret not initialized when generating token",
+			"userID", userID,
+			"username", username,
+		)
 		return "", errors.New("JWT secret not initialized")
 	}
 
@@ -44,14 +50,27 @@ func GenerateToken(userID string, username string, lifetime time.Duration) (stri
 		UserID:   userID,
 		Username: username,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(lifetime)),
+			ExpiresAt: jwt.NewNumericDate(time.Now().Add(jwtLifetime)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			Issuer:    "my-app",
+			Issuer:    jwtIssuer,
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	return token.SignedString(jwtSecret)
+	signed, err := token.SignedString(jwtSecret)
+	if err != nil {
+		logger.Logger.Errorw("Failed to sign JWT token",
+			"userID", userID,
+			"username", username,
+			"error", err,
+		)
+		return "", err
+	}
+	logger.Logger.Infow("JWT token generated",
+		"userID", userID,
+		"username", username,
+	)
+	return signed, nil
 }
 
 func ValidateToken(tokenStr string) (*Claims, error) {

@@ -2,19 +2,26 @@ package service
 
 import (
 	"context"
+	"time"
+
 	"github.com/drakond/module4-task1/grpc/genproto"
-	"github.com/drakond/module4-task1/internal/repo"
 	"github.com/drakond/module4-task1/pkg/jwt"
 	"github.com/drakond/module4-task1/pkg/logger"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
+// UserRepository интерфейс для репозитория пользователей
+type UserRepository interface {
+	UserExists(ctx context.Context, username string) (bool, error)
+	CreateUser(ctx context.Context, username, hashedPassword, email string) error
+	GetUserForLogin(ctx context.Context, username string) (userID, hashedPassword string, err error)
+}
+
 type AuthService struct {
-	Repo *repo.UserRepo
+	Repo UserRepository
 	genproto.UnimplementedAuthServiceServer
 }
 
